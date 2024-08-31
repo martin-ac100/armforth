@@ -71,9 +71,21 @@ fX .req r10
 	\label :
         .endm
 
+//.macro defvar name, namelen, flags=0, label, initial=0
+//        defword \name,\namelen,\flags,\label
+//        .int LIT, var_\name, EXIT
+//        .data
+//        .balign 4
+//var_\name:
+//        .int \initial
+//        .endm
 .macro defvar name, namelen, flags=0, label, initial=0
-        defword \name,\namelen,\flags,\label
-        .int LIT, var_\name, EXIT
+        defcode \name,\namelen,\flags,\label
+	push {fTOS}
+	ldr fTOS,#link_\name
+	NEXT
+	link_\name:
+	.int var_\name
         .data
         .balign 4
 var_\name:
@@ -381,12 +393,11 @@ defcode "EXE",3,,EXE
 	bx fW
 
 .macro go l
-	.int ( \l - . )
+	.int \l 
 	.endm
 
 defcode "BRANCH",6,,BRANCH
-	ldr fW,[fIP]
-	add fIP,fW
+	ldr fIP,[fIP]
 	NEXT
 
 defcode "BZ",2,,BZ
@@ -433,12 +444,10 @@ defcode "SYS_CALL",8,,SYS_CALL
 
 defcode "EMIT",4,,EMIT
 	mov r0,#1
-	push {fTOS}
-	mov r1,sp
-	mov r2,#1
+	mov r2,fTOS
+	pop {r1}
 	mov r7,#4
 	svc 0
-	pop {fTOS}
 	pop {fTOS}
 	NEXT
 
