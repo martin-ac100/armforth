@@ -15,18 +15,13 @@ fX .req r10
 	str \reg, [fRSP, #-4]!
 	.endm
 
-.macro POPR
-	ldr fIP, [fRSP], #4
-	.endm
-
-.macro PUSHD reg
-	push {fTOS}
-	mov fTOS, \reg
+.macro POPR reg
+	ldr \reg, [fRSP], #4
 	.endm
 
 .macro DOCOL
 	PUSHR fIP
-	add fIP, fW, #16
+	add fIP, fW, #docol_len
 	NEXT
 	.endm
 
@@ -42,45 +37,29 @@ fX .req r10
 
 .set	link, 0
 
-.macro defword name, namelen, flags=0, label
-	.text
-	.balign 4
-	.global name_\label
-	name_\label:
-		.int link
-		.set link, name_\label
-		.int \flags+\namelen
-		.ascii "\name"
-		.balign 4
-		.global \label
-	\label:
-		DOCOL
-	.endm
-
-.macro defcode name, namelen, flags=0, label
+.macro defcode name, label, flags=0
 	.text
         .balign 4
         .global name_\label
 	name_\label:
 		.int link               // link
-		.set link,name_\label
-		.int \flags+\namelen   // flags + length byte
+		.set link, name_\label
+		.int 2f - 1f + \flags
+	1:
 		.ascii "\name"          // the name
+	2:
 		.balign 4                // padding to next 4 byte boundary
 		.global \label
 	\label :
         .endm
 
-//.macro defvar name, namelen, flags=0, label, initial=0
-//        defword \name,\namelen,\flags,\label
-//        .int LIT, var_\name, EXIT
-//        .data
-//        .balign 4
-//var_\name:
-//        .int \initial
-//        .endm
-.macro defvar name, namelen, flags=0, label, initial=0
-        defcode \name,\namelen,\flags,\label
+.macro defword name, label, flags=0
+	defcode "\name", \label, \flags
+	DOCOL
+	.endm
+
+.macro defvar name, label, initial=0
+        defcode \name, \label, 0
 	push {fTOS}
 	ldr fTOS,#link_\name
 	NEXT
@@ -92,43 +71,45 @@ var_\name:
         .int \initial
         .endm
 
-.macro defconst name, namelen, flags=0, label, value
-	defcode \name,\namelen,\flags,\label
-	ldr fX,1f
-	PUSHD fX
+.macro defconst name, label, value
+	defcode \name, \label, 0
+	push {fTOS}
+	ldr fTOS,1f
 	NEXT
 1:
 	.int \value
 	.endm
 
 .balign 4
+
 docol:
 	DOCOL
+	.balign 4
 	.set docol_len,(. - docol)
 next:
 	NEXT
 	.set next_len, (. - next)
 
-defcode "DROP",4,,DROP
+defcode "DROP",DROP,0
 	pop {fTOS}                // drop top of stack
 	NEXT
 
-defcode "SWAP",4,,SWAP
+defcode "SWAP",SWAP,0
 	mov fX, fTOS
 	pop {fTOS}
 	push {fX}
 	NEXT
 
-defcode "DUP",3,,DUP
+defcode "DUP",DUP,0
 	push {fTOS}
 	NEXT
 
-defcode "OVER",4,,OVER
+defcode "OVER",OVER,0
 	push {fTOS}
 	ldr fTOS,[sp,#4]
 	NEXT
 
-defcode "ROT",3,,ROT // 1 2 3 -- 2 3 1
+defcode "ROT",ROT,0 // 1 2 3 -- 2 3 1
 	mov fX, fTOS
 	pop {fTOS}
 	pop {fW}
@@ -136,7 +117,7 @@ defcode "ROT",3,,ROT // 1 2 3 -- 2 3 1
 	push {fW}
 	NEXT
 
-defcode "-ROT",4,,NROT // 1 2 3 -- 3 1 2
+defcode "-ROT",NROT,0 // 1 2 3 -- 3 1 2
 	pop {fX}
 	pop {fW}
 	push {fX}
@@ -144,147 +125,147 @@ defcode "-ROT",4,,NROT // 1 2 3 -- 3 1 2
 	mov fTOS, fW
 	NEXT
 
-defcode "1+",2,,INCR
+defcode "1+",INCR,0
 	add fTOS, fTOS, #1
         NEXT
 
-defcode "1-",2,,DECR
+defcode "1-",DECR,0
 	sub fTOS, fTOS, #1
         NEXT
 
-defcode "CELLS",5,,CELLS
+defcode "CELLS",CELLS,0
 	mov fTOS,fTOS,ASL #2
 	NEXT
 
-defcode "+CELL",5,,ADD_CELL
+defcode "+CELL",ADD_CELL,0
 	add fTOS, fTOS, #4
         NEXT
 
-defcode "-CELL",5,,SUB_CELL
+defcode "-CELL",SUB_CELL,0
 	sub fTOS, fTOS, #4
         NEXT
 
 
-defcode "+",1,,ADD
+defcode "+",ADD,0
 	pop {fX}
 	add fTOS, fTOS, fX
         NEXT
 
-defcode "-",1,,SUB
+defcode "-",SUB,0
 	pop {fX}
 	sub fTOS, fX, fTOS
         NEXT
 
-defcode "*",1,,MUL
+defcode "*",MUL,0
 	pop {fX}
 	mov fW,fTOS
 	mul fTOS, fW, fX
         NEXT
 
-defcode "=",1,,EQU
+defcode "=",EQU,0
 	pop {fX}
 	cmp fTOS, fX
 	moveq fTOS, #1
 	movne fTOS, #0
 	NEXT
 
-defcode ">",1,,GT
+defcode ">",GT,0
 	pop {fW}
 	cmp fTOS,fW
 	movgt fTOS,#1
 	movle fTOS, #0
 	NEXT
 
-defcode ">=",2,,GE
+defcode ">=",GE,0
 	pop {fW}
 	cmp fTOS,fW
 	movge fTOS,#1
 	movlt fTOS, #0
 	NEXT
 
-defcode "<",1,,LT
+defcode "<",LT,0
 	pop {fW}
 	cmp fTOS,fW
 	movlt fTOS,#1
 	movge fTOS, #0
 	NEXT
 
-defcode "<=",2,,LE
+defcode "<=",LE,0
 	pop {fW}
 	cmp fTOS,fW
 	movle fTOS,#1
 	movgt fTOS, #0
 	NEXT
 
-defcode ">0",2,,GTZ
+defcode ">0",GTZ,0
 	cmp fTOS,#0
 	movgt fTOS,#1
 	movle fTOS, #0
 	NEXT
 
-defcode ">=0",3,,GEZ
+defcode ">=0",GEZ,0
 	cmp fTOS,#0
 	movge fTOS,#1
 	movlt fTOS, #0
 	NEXT
 
-defcode "<0",2,,LTZ
+defcode "<0",LTZ,0
 	cmp fTOS,#0
 	movlt fTOS, #1
 	movge fTOS, #0
 	NEXT
 
-defcode "<=0",3,,LEZ
+defcode "<=0",LEZ,0
 	cmp fTOS,#0
 	movle fTOS,#1
 	movgt fTOS,#0
 	NEXT
 
-defcode "0=",2,,EQZ
+defcode "0=",EQZ,0
 	cmp fTOS,#0
 	mov fTOS,#0
 	moveq fTOS, #1
 	NEXT
 
-defcode "~",1,,INV
+defcode "~",INV,0
 	mvn fTOS,fTOS
 	NEXT
 	
-defcode "&",1,,AND
+defcode "&",AND,0
 	pop {fX}
 	and fTOS,fTOS,fX
 	NEXT
 
-defcode "|",1,,OR
+defcode "|",OR,0
 	pop {fX}
 	orr fTOS,fTOS,fX
 	NEXT
 
-defcode "^",1,,XOR
+defcode "^",XOR,0
 	pop {fX}
 	eor fTOS,fTOS,fX
 	NEXT
 
-defcode "EXIT",4,,EXIT
-	POPR
+defcode "EXIT",EXIT,0
+	POPR fIP
 	NEXT
 
-defcode "LIT",3,,LIT
-	ldr fX,[fIP],#4
-	PUSHD fX
+defcode "LIT",LIT,0
+	push {fTOS}
+	ldr fTOS,[fIP],#4
 	NEXT
 
-defcode "!",1,,STORE
+defcode "!",STORE,0
 	pop {fX}
 	str fX,[fTOS]
 	pop {fTOS}
 	NEXT
 
-defcode "@",1,,FETCH
+defcode "@",FETCH,0
 	ldr fTOS,[fTOS]
 	NEXT
 
-defcode "@!",2,,COPY // ( src dst -- src+4 dst+4 )
+defcode "@!",COPY,0 // ( src dst -- src+4 dst+4 )
 	ldr fX,[fTOS]
 	ldr fW,[sp]
 	str fX,[fW],#4
@@ -292,7 +273,7 @@ defcode "@!",2,,COPY // ( src dst -- src+4 dst+4 )
 	str fW,[sp]
 	NEXT
 
-defcode "+!",2,,ADDSTORE
+defcode "+!",ADDSTORE,0
 	pop {fX}
 	ldr fW,[fTOS]
 	add fW,fW,fX
@@ -300,31 +281,31 @@ defcode "+!",2,,ADDSTORE
 	pop {fTOS}
 	NEXT
 
-defcode "-!",2,,SUBSTORE
+defcode "-!",SUBSTORE,0
 	pop {fX}
 	ldr fW,[fTOS]
 	sub fW,fW,fX
 	str fW,[fTOS]
 	NEXT
 
-defcode "C!",2,,STOREBYTE
+defcode "C!",STOREBYTE,0
 	pop {fX}
 	strb fX,[fTOS]
 	pop {fTOS}
 	NEXT
 
-defcode "C@",1,,FETCHBYTE
+defcode "C@",FETCHBYTE,0
 	ldrb fTOS,[fTOS]
 	NEXT
 
-defcode "C@C!",4,,CCOPY // ( src dst -- src+1 dst+1 )
+defcode "C@C!",CCOPY,0 // ( src dst -- src+1 dst+1 )
 	ldr fW,[sp] //dst to fW
 	ldrb fX,[fTOS],#1
 	strb fX,[fW],#1
 	str fW,[sp]
 	NEXT
 
-defcode "STRCPY",6,,STRCPY // ( len, src, dst -- )
+defcode "STRCPY",STRCPY,0 // ( len, src, dst -- )
 	ldr fX,[sp] //src to fX
 	ldr fY,[sp,#4] //dst to fY
 1:	
@@ -336,7 +317,7 @@ defcode "STRCPY",6,,STRCPY // ( len, src, dst -- )
 
 	NEXT
 
-defcode "DOCOL>",6,,DOCOLCPY // ( dst -- )
+defcode "DOCOL>",DOCOLCPY,0 // ( dst -- )
 	ldr fX,=docol
 	ldr fW,[fX],#4
 	str fW,[fTOS],#4
@@ -349,7 +330,7 @@ defcode "DOCOL>",6,,DOCOLCPY // ( dst -- )
 	ldr fTOS,[sp,#4]!
 	NEXT
 
-defcode "STRCMP",6,,STRCMP // ( len, addr1, addr2 -- result )
+defcode "STRCMP",STRCMP,0 // ( len, addr1, addr2 -- result )
 1:
 	ldr fX,[sp]
 	ldr fY,[sp,#4]
@@ -368,26 +349,26 @@ defcode "STRCMP",6,,STRCMP // ( len, addr1, addr2 -- result )
 	NEXT
 
 
-defcode ">R",2,,TOR
+defcode ">R",TOR,0
 	PUSHR fTOS
 	pop {fTOS}
 	NEXT
 
-defcode "R>",2,,FROMR
+defcode "R>",FROMR,0
 	push {fTOS}
-	ldr fTOS, [fRSP], #4
+	POPR fTOS
 	NEXT
 
-defcode "RDROP",5,,RDROP
+defcode "RDROP",RDROP,0
 	add fRSP,fRSP,#4
 	NEXT
 
-defcode "RDUP",4,,RDUP
+defcode "RDUP",RDUP,0
 	push {fTOS}
 	ldr fTOS,[fRSP]
 	NEXT
 
-defcode "EXE",3,,EXE
+defcode "EXE",EXE,0
 	mov fW,fTOS
 	pop {fTOS}
 	bx fW
@@ -396,25 +377,25 @@ defcode "EXE",3,,EXE
 	.int \l 
 	.endm
 
-defcode "BRANCH",6,,BRANCH
+defcode "BRANCH",BRANCH,0
 	ldr fIP,[fIP]
 	NEXT
 
-defcode "BZ",2,,BZ
+defcode "BZ",BZ,0
 	cmp fTOS,#0
 	pop {fTOS}
 	beq BRANCH
 	add fIP,#4
 	NEXT
 
-defcode "BNZ",3,,BNZ
+defcode "BNZ",BNZ,0
 	cmp fTOS,#0
 	pop {fTOS}
 	bne BRANCH
 	add fIP,#4
 	NEXT
 
-defcode "C_CALL",6,,C_CALL
+defcode "C_CALL",C_CALL,0
 	pop {fW}
 	ldr fX,=c_call_0
 	sub fX,fX, fW, LSL #2
@@ -428,7 +409,7 @@ defcode "C_CALL",6,,C_CALL
 		pop {fTOS}
 	NEXT
 
-defcode "SYS_CALL",8,,SYS_CALL
+defcode "SYS_CALL",SYS_CALL,0
 	pop {fW}
 	ldr fX,=sys_call_0
 	sub fX,fX, fW, LSL #2
@@ -442,7 +423,7 @@ defcode "SYS_CALL",8,,SYS_CALL
 		mov fTOS,r0
 	NEXT
 
-defcode "EMIT",4,,EMIT
+defcode "EMIT",EMIT,0
 	mov r0,#1
 	mov r2,fTOS
 	pop {r1}
@@ -451,7 +432,7 @@ defcode "EMIT",4,,EMIT
 	pop {fTOS}
 	NEXT
 
-defcode "KEY",3,,KEY
+defcode "KEY",KEY,0
 _KEY:
 	ldr fW,=currkey
 	ldr fW,[fW]
@@ -459,8 +440,8 @@ _KEY:
 	ldr fX,[fX]
 	cmp fW,fX
 	bge 1f
-	ldrb fX,[fW],#1
-	PUSHD fX
+	push {fTOS}
+	ldrb fTOS,[fW],#1
 	ldr fX,=currkey
 	str fW,[fX]
 	NEXT
@@ -485,7 +466,7 @@ _KEY:
 	mov r7,#1
 	svc 0
 
-defcode "CACHEFLUSH",10,F_HIDDEN,CACHEFLUSH
+defcode "CACHEFLUSH",CACHEFLUSH,F_HIDDEN
 	ldr r0,=dict_addr
 	ldr r0,[r0]
 	ldr r1,=var_HERE
@@ -508,10 +489,10 @@ wordbuffer:
 	.space 32
 
 
-defword "ISBLANK",5,F_HIDDEN,ISBLANK
+defword "ISBLANK",ISBLANK,F_HIDDEN
 	.int LIT,' ',OVER,LE,EXIT
 
-defword "WORD",4,,WORD // (  -- len addr )
+defword "WORD",WORD,0 // (  -- len addr )
 	.int LIT,wordbuffer
 	.int DUP,DUP
 	1:
@@ -541,7 +522,7 @@ PARSE_DIG:
 	digits:
 		.ascii " 0123456789ABCDEF"
 
-defword "NUMBER",6,,NUMBER // ( len addr -- isvalid result )
+defword "NUMBER",NUMBER,0 // ( len addr -- isvalid result ),
 	//stack: word_len,addr
 	.int LIT,1,TOR,LIT,0,TOR //rstack: value,sign
 	1:
@@ -560,7 +541,7 @@ defword "NUMBER",6,,NUMBER // ( len addr -- isvalid result )
 	4:
 	.int RDROP,RDROP,SWAP,DROP,EXIT //invalid number stack: ( -1 len addr -- -1 addr )
 
-defword "FIND",4,,FIND //( len waddr - daddr )
+defword "FIND",FIND,0 //( len waddr - daddr ),
 	.int LATEST,FETCH
 	1://next word
 	.int DUP,TOR,ADD_CELL,FETCH,LIT,F_LENMASK,LIT,F_HIDDEN,OR,AND,OVER,EQU,BNZ // compare LEN
@@ -578,13 +559,13 @@ defword "FIND",4,,FIND //( len waddr - daddr )
 	3: 
 	.int ROT,DROP,DROP,EXIT
 
-defword ">XT",3,,TOXT
+defword ">XT",TOXT,0
 	.int ADD_CELL,DUP,FETCH,LIT,F_LENMASK,AND,ADD,LIT,7,ADD,LIT,3,INV,AND,EXIT
 
-defword ",",1,,COMMA
+defword ",",COMMA,0
 	.int HERE,FETCH,STORE,LIT,4,HERE,ADDSTORE,EXIT
 
-defword "CREATE",6,,CREATE
+defword "CREATE",CREATE,0
 	//s: len,word
 	.int HERE,FETCH //s: here,len,wordbuffer
 	.int LATEST,FETCH,COMMA,LATEST,STORE //s:len,wordbuffer
@@ -594,13 +575,13 @@ defword "CREATE",6,,CREATE
 	.int STRCPY //s: len
 	.int HERE,FETCH,ADD,LIT,3,ADD,LIT,3,INV,AND,HERE,STORE,CACHEFLUSH,EXIT
 
-defword "[",1,F_IMMED,LBRAC
+defword "[",LBRAC,F_IMMED
 	.int LIT,0,STATE,STORE,EXIT
 
-defword "]",1,F_IMMED,RBRAC
+defword "]",RBRAC,F_IMMED
 	.int LIT,1,STATE,STORE,EXIT
 		
-defword ":",1,,COLON
+defword ":",COLON,0
 	.int WORD
 	.int CREATE
 	.int HERE,FETCH,DOCOLCPY
@@ -609,30 +590,30 @@ defword ":",1,,COLON
 	.int RBRAC
 	.int EXIT
 
-defword ";",1,F_IMMED,SEMICOLON
+defword ";",SEMICOLON,F_IMMED
 	.int LIT,EXIT,COMMA
 	.int LATEST,FETCH,HIDDEN
 	.int LBRAC
 	.int CACHEFLUSH
 	.int EXIT
 
-defword "IMMEDIATE",9,F_IMMED,IMMEDIATE
+defword "IMMEDIATE",IMMEDIATE,F_IMMED
 	.int LATEST,FETCH,ADD_CELL,DUP,FETCH,LIT,F_IMMED,XOR,SWAP,STORE,EXIT
 
-defword "HIDDEN",6,F_IMMED,HIDDEN
+defword "HIDDEN",HIDDEN,F_IMMED
 	.int ADD_CELL,DUP,FETCH,LIT,F_HIDDEN,XOR,SWAP,STORE,EXIT
 
-defword "'",1,F_IMMED,TICK
+defword "'",TICK,F_IMMED
 	.int WORD,FIND,TOXT,EXIT
 
-defword "TELL",4,,TELL //s: LEN,ADDR
+defword "TELL",TELL,0 //s: LEN,ADDR
 	.int LIT,1,ROT,LIT,3,LIT,4,SYS_CALL,EXIT
 
-defword ".",1,,DOT
+defword ".",DOT,0
 	.int LIT,prf,SWAP,LIT,2,LIT,printf,C_CALL,EXIT
 prf:	.asciz "%d\n"
 
-defword "REPL",4,,REPL
+defword "REPL",REPL,0
 
 	.int RDROP,LIT,GO,TOR
 	.int WORD,OVER,OVER,FIND,DUP,BZ
@@ -661,15 +642,15 @@ ERR:
 	.ascii "Not a word.\n"
 	.set ERR_LEN, ( . - ERR )
 
-defword "BRK",3,F_IMMED,BRK
+defword "BRK",BRK,F_IMMED
 	.int EXIT
 		
 
 
-defvar "STATE",5,,STATE
-defvar "HERE",4,,HERE
-defvar "LATEST",6,,LATEST,name_BASE // must be last in built-in dictionary
-defvar "BASE",4,,BASE,10
+defvar "STATE",STATE
+defvar "HERE",HERE
+defvar "LATEST",LATEST,name_BASE // must be last in built-in dictionary
+defvar "BASE",BASE,10
 
 	.text
 	.align 4
